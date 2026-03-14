@@ -1,0 +1,146 @@
+指令/camera
+修改玩家的相機視角。
+語法:
+
+/camera <players: target> ...
+... attach_to_entity <entity: target>[僅實驗性玩法「創作者攝影機的實驗性功能」]
+... clear
+... detach_from_entity[僅實驗性玩法「創作者攝影機的實驗性功能」]
+... fade ...
+	... color <red: int> <green: int> <blue: int>
+	... time <fadeInSeconds: float> <holdSeconds: float> <fadeOutSeconds: float> ...
+		... [color <red: int> <green: int> <blue: int>]
+... fov_clear [fovEaseTime: float] [fovEaseType: Easing]
+... fov_set <fov_value: float> [fovEaseTime: float] [fovEaseType: Easing]
+... play_spline <name: string>[僅實驗性玩法「創作者攝影機的實驗性功能」]
+... remove_target
+... set <preset: string> ...
+	... [default: default]
+	... ease <easeTime: float> <easeType: Easing> ...
+		... [default: default]
+		... entity_offset <xEntityOffset: float> <yEntityOffset: float> <zEntityOffset: float>
+		... facing ...
+			... <lookAtEntity: target>
+			... <lookAtPosition: x y z>
+		... pos <position: x y z> ...
+			... [facing ...]
+				... <lookAtEntity: target>
+				... <lookAtPosition: x y z>
+			... rot <xRot: value> <yRot: value>
+		... rot <xRot: value> <yRot: value> ...
+			... [entity_offset <xEntityOffset: float> <yEntityOffset: float> <zEntityOffset: float>]
+			... view_offset <xViewOffset: float> <yViewOffset: float> ...
+				... [entity_offset <xEntityOffset: float> <yEntityOffset: float> <zEntityOffset: float>]
+			... view_offset <xViewOffset: float> <yViewOffset: float> ...
+				... [entity_offset <xEntityOffset: float> <yEntityOffset: float> <zEntityOffset: float>]
+	... entity_offset <xEntityOffset: float> <yEntityOffset: float> <zEntityOffset: float>
+	... facing ...
+		... <lookAtEntity: target>
+		... <lookAtPosition: x y z>
+	... pos <position: x y z> ...
+		... [facing ...]
+			... <lookAtEntity: target>
+			... <lookAtPosition: x y z>
+		... rot <xRot: value> <yRot: value>
+	... rot <xRot: value> <yRot: value> ...
+		... [entity_offset <xEntityOffset: float> <yEntityOffset: float> <zEntityOffset: float>]
+		... view_offset <xViewOffset: float> <yViewOffset: float> ...
+			... [entity_offset <xEntityOffset: float> <yEntityOffset: float> <zEntityOffset: float>]
+	... view_offset <xViewOffset: float> <yViewOffset: float> ...
+		... [entity_offset <xEntityOffset: float> <yEntityOffset: float> <zEntityOffset: float>]
+... target_entity <entity: target> ...
+	... [target_center_offset <xTargetCenterOffset: float> <yTargetCenterOffset: float> <zTargetCenterOffset: float>]
+
+
+
+players: target：CommandSelector<Player>
+指定將被修改相機視角的玩家。
+必須為玩家名或目標選擇器。且要求目標選擇器為玩家類型，若不是則在指令執行時會執行失敗。
+
+entity: target：CommandSelector<Actor>
+指定相機將要固定於的實體。
+必須為玩家名或目標選擇器。
+
+red: int：int、green: int：int和blue: int：int
+指定相機視角的RGB顏色。
+必須為整型 32位元整數。且必須在0和255之間（含）。
+
+fadeInSeconds: float：float、holdSeconds: float：float和fadeOutSeconds: float：float
+指定相機視角的淡入、保持和淡出持續時間，單位為秒。
+必須為單精度浮點數 單精度浮點數。且必須在0.0和10.0之間（含）。
+
+fov_value: float：float
+指定相機視角廣度。
+必須為單精度浮點數 單精度浮點數。由於遊戲限制，實際的有效值範圍在30和110之間（含）。
+
+fovEaseTime: float：float
+指定相機視角廣度平滑過渡的持續時間（秒），預設為0。
+必須為單精度浮點數 單精度浮點數。
+
+fovEaseType: Easing：enum
+指定用於相機視角廣度的運鏡函數/類型，預設為linear。
+必須是in_back、​in_bounce、​in_circ、​in_cubic、​in_elastic、​in_expo、​in_out_back、​in_out_bounce、​in_out_circ、​in_out_cubic、​in_out_elastic、​in_out_expo、​in_out_quad、​in_out_quart、​in_out_quint、​in_out_sine、​in_quad、​in_quart、​in_quint、​in_sine、​linear、​out_back、​out_bounce、​out_circ、​out_cubic、​out_elastic、​out_expo、​out_quad、​out_quart、​out_quint、​out_sine和​spring之一。
+
+name: string：basic_string
+指定樣條ID。只在使用minecraft:free預設時有效。
+必須為字串 字串。必須為單個詞或者雙引號（"）括起的字串。引號內的字元可以使用\進行跳脫。
+
+preset: string：basic_string
+[需要更多資訊]
+相機視角/預設。
+必須為以下其中之一：
+minecraft:control_scheme_camera — 控制方案相機。[僅實驗性玩法「創作者攝影機的實驗性功能」]
+minecraft:first_person — 第一人稱視角。
+minecraft:fixed_boom — 固定鏡頭視角的軌道相機。
+minecraft:follow_orbit — 軌道相機。
+minecraft:free — 自由視角。
+minecraft:third_person — 第三人稱視角背面。
+minecraft:third_person_front — 第三人稱視角正面。
+easeTime: float：float
+
+指定相機視角平滑過渡的持續時間（秒）。只在使用minecraft:free預設時有效。
+必須為單精度浮點數 單精度浮點數。
+
+easeType: Easing：enum
+指定用於相機視角的運鏡函數/類型。只在使用minecraft:free預設時有效。
+必須是in_back、​in_bounce、​in_circ、​in_cubic、​in_elastic、​in_expo、​in_out_back、​in_out_bounce、​in_out_circ、​in_out_cubic、​in_out_elastic、​in_out_expo、​in_out_quad、​in_out_quart、​in_out_quint、​in_out_sine、​in_quad、​in_quart、​in_quint、​in_sine、​linear、​out_back、​out_bounce、​out_circ、​out_cubic、​out_elastic、​out_expo、​out_quad、​out_quart、​out_quint、​out_sine和​spring之一。
+
+default: default：enum
+指定將自由視角的位置和朝向改為預設值（相機位置（0,0,0），旋轉角度xRot=0，yRot=0）[需要更多資訊]。只在使用minecraft:free預設時有效。
+必須為default。
+
+lookAtEntity: target：CommandSelector<Actor>
+指定相機視角朝向的實體。只在使用minecraft:free預設時有效。
+必須為玩家名或目標選擇器。
+
+lookAtPosition: x y z：CommandPositionFloat
+指定相機視角朝向的座標。只在使用minecraft:free預設時有效。
+必須為三維座標，元素為單精度浮點數。允許相對座標（~ ~ ~）或局部座標（^ ^ ^）。
+
+position: x y z：CommandPosition
+指定相機視角的位置。只在使用minecraft:free預設時有效。
+必須為三維的座標，格式為<X> <Y> <Z>，三個值必須是浮點數、相對座標或局部座標。
+
+xRot: value：RelativeFloat
+指定相機視角的垂直旋轉角度。在使用minecraft:follow_orbit預設的情況下，還將修改玩家的朝向。
+必須為一個單精度浮點數單精度浮點數，允許波浪號標記。且必須在-90和90之間（含）。
+
+yRot: value：RelativeFloat
+指定相機視角的水平旋轉角度。在使用minecraft:follow_orbit預設的情況下，還將修改玩家的朝向。
+必須為一個單精度浮點數單精度浮點數，允許波浪號標記。
+
+xViewOffset: float：Float和yViewOffset: float：Float
+指定相機視角的偏移量。只在使用minecraft:follow_orbit預設時有效。
+必須為單精度浮點數 單精度浮點數。且必須在-64和64之間（含）。
+
+xEntityOffset: float：Float、yEntityOffset: float：Float和zEntityOffset: float：Float
+指定相機視角相對於實體的偏移量。只在使用minecraft:follow_orbit預設時有效。
+必須為單精度浮點數 單精度浮點數。且必須在-64和64之間（含）。
+
+entity: target：CommandSelector<Actor>
+指定要將相機視角聚焦的實體。只在使用minecraft:free預設時有效。
+必須為玩家名或目標選擇器。
+
+xTargetCenterOffset: float：Float、yTargetCenterOffset: float：Float和zTargetCenterOffset: float：Float
+指定相機視角相對於聚焦/目標實體中心的偏移量。只在使用minecraft:free預設時有效。
+必須為單精度浮點數 單精度浮點數。

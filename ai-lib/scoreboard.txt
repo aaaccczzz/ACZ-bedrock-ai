@@ -1,0 +1,29 @@
+指令/scoreboard
+管理計分板中的目標和分數持有者
+計分板目標指令
+scoreboard objectives list
+列出所有存在的計分板目標、顯示名稱與條件。
+scoreboard objectives add <objective: string> dummy [displayName: string]
+建立一個具有指定名稱、條件和顯示名稱（可選）的計分板目標。<objective: string>可以被引號包裹。<displayName: string>必須是非數字的純文字。如果未指定，預設為<objective>。所有的參數均區分大小寫。
+scoreboard objectives remove <objective: string>
+從計分板系統中刪除指定計分板目標及其所有有關內容。計分板目標、分數的資料都會被刪除，且如果計分板目標在顯示位置上，該顯示位置將會被清空。
+scoreboard objectives setdisplay <list|sidebar> [objective: string] [ascending|descending]
+scoreboard objectives setdisplay belowname [objective: string]
+在指定位置顯示指定計分板目標的分數資訊。合法的位置已在計分板 § 顯示位置裡列出並描述。注意，若未指定計分板目標，則對應顯示位置將被清空（恢復到預設狀態）。若顯示位置指定為list或sidebar，可使用額外的可選參數ascending|descending以指定排列順序。
+分數持有者指令
+scoreboard players list [playername: target]
+顯示所有被計分板系統追蹤的實體。可選參數[playername: target]（實體名稱）可用以顯示指定實體的所有分數。
+scoreboard players set <player: target> <objective: string> <count: int>
+設定指定分數持有者在指定計分板目標中的分數。
+scoreboard players add <player: target> <objective: string> <count: int>
+增加指定分數持有者在給定計分板目標中的分數值。若指定分數持有者在計分板目標中不存在分數，則在增加前視為0分。若為負數，則將減去相應的分數。
+scoreboard players remove <player: target> <objective: string> <count: int>
+減少指定分數持有者在給定計分板目標中的分數值。若計分板目標不存在分數，則在減少前視為0分。若為負數，則將增加相應分數。
+scoreboard players random <player: target> <objective: string> <min: int> <max: int>
+設定指定分數持有者在指定計分板目標中的分數為一個在<min: int>（最小值）和<max: int>（最大值）之間的隨機數（包含最小值和最大值）。
+scoreboard players reset <player: target> [objective: string]
+刪除指定分數持有者在指定計分板目標（或其所有被追蹤的計分板目標）中的分數。若指定了<objective>參數，那麼僅限該計分板目標被清空。否則將清空所有關聯的計分板目標。註：這並非將分數設為0，分數持有者的所有資料將從整個計分板（或指定計分板目標）中移除。
+scoreboard players test <player: target> <objective: string> <min: wildcard int> [max: wildcard int]
+檢測目標分數是否在<min: wildcard int>（最小值）和<max: wildcard int>（最大值，預設為2,147,483,647）之間。
+scoreboard players operation <player: target> <targetObjective: string> <operation: operator> <selector: target> <objective: string>
+對目標分數持有者的目標計分板目標中的分數（<player: target>與<targetObjective: string>）與來源分數持有者的來源計分板目標中的分數（<selector: target>與<objective: string>）進行算術運算等操作，操作的結果將寫入目標分數持有者對應計分板目標中的分數。若來源分數持有者及其對應的計分板目標中不存在分數，則視作0分處理。

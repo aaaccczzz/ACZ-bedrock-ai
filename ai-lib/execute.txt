@@ -1,0 +1,5 @@
+/execute 用法:
+/execute <玩家名稱> <座標偏移> <執行指令>
+例如:
+execute @a ~~~ summon chicken
+解釋: 在所有玩家位置生成一隻雞
