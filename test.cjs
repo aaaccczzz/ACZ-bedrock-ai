@@ -171,7 +171,7 @@ model = genAI.getGenerativeModel({
 
 async function handleAIChat(playerQuestion, playerName, sendCommand, showthink) {
     isaithinking = true;
-    if (showthink === true) sendCommand(`me §b[Gemini] §rAI思考中...`);
+    if (showthink === true) sendCommand(`me §b[${geminimodel}] §rAI思考中...`);
     
     try {
         const libraryData = aiLib === "on" ? "，資料庫:" + await readFiles() : "";
@@ -514,29 +514,77 @@ async function handleCommand(msg,data,sendCommand) {
     subscribe(message[1]);
     sendCommand(`me 已訂閱事件: ${message[1]}`);
     }
-    if (message[0] === `${prefix}setai2` && data.body.sender === userName) {
-    if (message.length === 1) {
-        if(tellmode === "raw") {
-            sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"用法: ${prefix}setai2 -m <模型名稱> -s <系統提示詞> -l <on/off開啟ai資料庫>"}]}`);
-        } else {
-            sendCommand(`tell ${data.body.sender} 用法: ${prefix}setai2 -m <模型名稱> -s <系統提示詞> -l <on/off開啟ai資料庫>`);
+    if (message[0] === `${prefix}setai` && data.body.sender === userName) {
+        if (message.length === 1) {
+            if(tellmode === "raw") {
+                sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"用法: ${prefix}setai2 -m <模型名稱> -s <系統提示詞> -l <on/off開啟ai資料庫>"}]}`);
+            } else {
+                sendCommand(`tell ${data.body.sender} 用法: ${prefix}setai2 -m <模型名稱> -s <系統提示詞> -l <on/off開啟ai資料庫>`);
+            }
+        }
+        if (message.includes("-m")) {
+            modelIndex = message.indexOf("-m");
+            geminimodel = message[modelIndex + 1];
+            sendCommand(`me 已設定模型: ${message[modelIndex + 1]}`);
+        } 
+        if (message.includes("-s")) {
+            systemIndex = message.indexOf("-s");
+            AiConTent = message[systemIndex + 1];
+            sendCommand(`me 已設定系統提示詞: ${message[systemIndex + 1]}`);
+        }
+        if (message.includes("-l")) {
+            systemIndex = message.indexOf("-l");
+            aiLib = message[systemIndex + 1];
+            sendCommand(`me Ai資料庫啟用狀態: ${message[systemIndex + 1]}`);
         }
     }
-    if (message.includes("-m")) {
-        modelIndex = message.indexOf("-m");
-        Aimodel = message[modelIndex + 1];
-        sendCommand(`me 已設定模型: ${message[modelIndex + 1]}`);
-    } 
-    if (message.includes("-s")) {
-        systemIndex = message.indexOf("-s");
-        AiConTent = message[systemIndex + 1];
-        sendCommand(`me 已設定系統提示詞: ${message[systemIndex + 1]}`);
+    if (message[0] === `${prefix}setai2` && data.body.sender === userName) {
+        if (message.length === 1) {
+            if(tellmode === "raw") {
+                sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"用法: ${prefix}setai2 -m <模型名稱> -s <系統提示詞> -l <on/off開啟ai資料庫>"}]}`);
+            } else {
+                sendCommand(`tell ${data.body.sender} 用法: ${prefix}setai2 -m <模型名稱> -s <系統提示詞> -l <on/off開啟ai資料庫>`);
+            }
+        }
+        if (message.includes("-m")) {
+            modelIndex = message.indexOf("-m");
+            Aimodel = message[modelIndex + 1];
+            sendCommand(`me 已設定模型: ${message[modelIndex + 1]}`);
+        } 
+        if (message.includes("-s")) {
+            systemIndex = message.indexOf("-s");
+            AiConTent = message[systemIndex + 1];
+            sendCommand(`me 已設定系統提示詞: ${message[systemIndex + 1]}`);
+        }
+        if (message.includes("-l")) {
+            systemIndex = message.indexOf("-l");
+            aiLib = message[systemIndex + 1];
+            sendCommand(`me Ai資料庫啟用狀態: ${message[systemIndex + 1]}`);
+        }
     }
-    if (message.includes("-l")) {
-        systemIndex = message.indexOf("-l");
-        aiLib = message[systemIndex + 1];
-        sendCommand(`me Ai資料庫啟用狀態: ${message[systemIndex + 1]}`);
-    }
+    if (message[0] === `${prefix}setai3` && data.body.sender === userName) {
+        if (message.length === 1) {
+            if(tellmode === "raw") {
+                sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"用法: ${prefix}setai2 -m <模型名稱> -s <系統提示詞> -l <on/off開啟ai資料庫>"}]}`);
+            } else {
+                sendCommand(`tell ${data.body.sender} 用法: ${prefix}setai2 -m <模型名稱> -s <系統提示詞> -l <on/off開啟ai資料庫>`);
+            }
+        }
+        if (message.includes("-m")) {
+            modelIndex = message.indexOf("-m");
+            groqmodel = message[modelIndex + 1];
+            sendCommand(`me 已設定模型: ${message[modelIndex + 1]}`);
+        } 
+        if (message.includes("-s")) {
+            systemIndex = message.indexOf("-s");
+            AiConTent = message[systemIndex + 1];
+            sendCommand(`me 已設定系統提示詞: ${message[systemIndex + 1]}`);
+        }
+        if (message.includes("-l")) {
+            systemIndex = message.indexOf("-l");
+            aiLib = message[systemIndex + 1];
+            sendCommand(`me Ai資料庫啟用狀態: ${message[systemIndex + 1]}`);
+        }
     }
     if (message[0] === `${prefix}setmode`){
     if (message.length === 1) {
@@ -680,7 +728,7 @@ async function readFiles() {    //輸出目錄下所有檔案 傳給openfiles輸
 
 async function askGroq(playerMessage, playername, sendCommand, showthink) {
     isaithinking = true;
-    if (showthink === true) sendCommand(`me §b[Groq-${Aimodel}] §rAI思考中...`);
+    if (showthink === true) sendCommand(`me §b[${groqmodel}] §rAI思考中...`);
 
     try {
         const messages = [
