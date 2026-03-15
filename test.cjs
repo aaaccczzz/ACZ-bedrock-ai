@@ -175,19 +175,15 @@ async function handleAIChat(playerQuestion, playerName, sendCommand, showthink) 
     
     try {
         const libraryData = aiLib === "on" ? "，資料庫:" + await readFiles() : "";
-        
-        // 修正點：將歷史紀錄處理成符合 user -> model -> user 的順序
         let chatHistory = [];
         ailog.forEach((content, index) => {
-            // 這裡假設你的 ailog 是 [問, 答, 問, 答] 這樣存的
-            // 如果你的 ailog 只存回覆，請確保這裡的 role 分配邏輯正確
             chatHistory.push({
                 role: index % 2 === 0 ? "user" : "model", 
                 parts: [{ text: content }],
             });
         });
 
-        // 如果第一筆不是 user，就把它刪掉，直到第一筆是 user 為止
+        // 直到第一筆是 user 為止
         while (chatHistory.length > 0 && chatHistory[0].role !== "user") {
             chatHistory.shift();
         }
@@ -276,7 +272,7 @@ wss.on('connection', (ws) => {
     }
     });
 
-    // --- A. 封裝「發送指令」的工具 (像 C++ 的 Member Function) ---
+    // --- A.發送指令工具 (像 C++ 的 Member Function) ---
     const sendCommand = (cmd) => {
         cmd = cmd.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
         if (not_allow_command.includes(cmd.split(' ')[0])){

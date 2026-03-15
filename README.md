@@ -1,12 +1,19 @@
 # ACZ-bedrock-ai - 一個在minecraft基岩版裡原生使用ai的工具
-## 功能
+## 🚀功能
 - 免費(~~白嫖~~)
 - 支持多個供應商更換(Gemini ,openrouter ,Groq)
 - 多功能
 - ai可以使用遊戲內部指令
 - 無人AI自動管理伺服器
 - 高自由度
-## 如何使用
+## ✨如何使用
+### 安裝環境
+
+確保你有node.js
+
+輸入:
+```npm install ws groq-sdk axios```
+
 ### 註冊三個API 
 [google](https://aistudio.google.com/api-keys)
 
@@ -48,13 +55,13 @@ module.exports={loadprop};
 node test.cjs
 ```
 
-## 如何連接?
+## 🛜如何連接?
 在遊戲中輸入:
 ```
 /connect localhost:8080
 ```
 
-## 指令列表
+## 🖨️指令列表
 ### 詢問ai
 ```
 .ai <內容>
@@ -69,3 +76,31 @@ node test.cjs
 .setai2 -m <模型名稱> -s <系統提示詞> -l <ai資料庫(on/off)>
 .setai3 -m <模型名稱> -s <系統提示詞> -l <ai資料庫(on/off)>
 ```
+1,2,3分別代表:Gemini,openrouter,Groq
+**註:"系統提示詞/ai資料庫"是通用的**
+
+### ai自動管理伺服器(世界)
+```
+.opai <on/off>
+```
+
+### 其他功能
+```
+.runjs <js>
+```
+執行jsvascript腳本
+
+```
+.gettime
+```
+獲取當前時間
+
+```
+.help <page>
+```
+更多指令清單
+
+```
+.devlist
+```
+開發者指令清單
