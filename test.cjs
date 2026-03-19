@@ -805,5 +805,7 @@ async function askGroq(playerMessage, playername, sendCommand, showthink) {
         console.error(`\x1b[31m[Groq 錯誤]\x1b[0m: ${error.message}`);
         isaithinking = false;
         if (showthink) sendCommand(`me §c[系統] Groq 呼叫失敗: ${error.message}`);
+        console.log(`召喚其他ai嘗試`);
+        return await askMinecraftAI(playerQuestion, playerName, sendCommand, showthink);
     }
 }
