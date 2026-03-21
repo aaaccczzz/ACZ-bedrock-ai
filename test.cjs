@@ -46,6 +46,7 @@ let commandversion=42;
 let latesttime=0;
 let delay=0;
 let tps=20;
+let playerlist=[];
 const groq = new Groq({ apiKey:groqkey});
 readFiles();
 
@@ -97,13 +98,18 @@ async function askMinecraftAI(playerMessage,playername,sendCommand,showthink) {
                 messages.push({ role: "assistant", content: log });
             });
         }
-
-        // 當前玩家輸入與長期記憶
+        await sendCommand("list");
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log(`玩家列表:${playerlist.join(' ')}`);
         messages.push({ 
             role: "user", 
-            content: `${playername}說:${playerMessage}${airemember.length > 0 ? `，記憶:${airemember.join('|')}` : ""}${libraryData}`  
+            content: `${playername}說:${playerMessage}
+<external_data>
+${airemember.length > 0 ? "- 記憶" + airemember.join('|') : ""}
+${libraryData.length > 0 ? "- " + libraryData : ""}
+- 玩家列表:${playerlist.join(',')}
+</external_data>`
         });
-
         completion = await openrouter.chat.completions.create({
             model: Aimodel, 
             messages: messages,
@@ -190,7 +196,16 @@ async function handleAIChat(playerQuestion, playerName, sendCommand, showthink) 
             chatHistory.shift();
         }
 
-        const userPrompt = `${playername}說:${playerQuestion}${airemember.length > 0 ? `，記憶:${airemember.join('|')}` : ""}${libraryData}`;
+        sendCommand("list");
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log(`玩家列表:${playerlist.join(' ')}`);
+
+        const userPrompt =`${playerName}說:${playerQuestion}
+<external_data>
+${airemember.length > 0 ? "- 記憶" + airemember.join('|') : ""}
+${libraryData.length > 0 ? "- " + libraryData : ""}
+- 玩家列表:${playerlist.join(',')}
+</external_data>`
         console.log(`\x1b[38;5;51m[AI 請求]\x1b[0m ${userPrompt}`);
 
         const chat = model.startChat({
@@ -346,7 +361,7 @@ wss.on('connection', (ws) => {
             // 1. 從 header 抓取事件名稱
             const eventName = data.header.eventName;
             const logmessage = data.body.statusMessage;
-        if (args[0] === "debug") {
+            if (args[0] === "debug") {
                 console.log("\x1b[38;5;244m收到Json訊息:\n" + JSON.stringify(data, null, 2) + "\x1b[0m");
             } 
             if (logmessage) console.log(`\x1b[38;5;244m[狀態訊息]\x1b[0m ${logmessage}`);
@@ -362,6 +377,10 @@ wss.on('connection', (ws) => {
                 per2[0]=1;
             } if (logmessage?.includes("權限不足，無法擴大選擇器")){
                 per2[1]=1;
+            }
+            if (/共有 \d+\/\d+ 玩家在線上：/.test(logmessage)){
+                playerlist = logmessage.replace(/共有 \d+\/\d+ 玩家在線上：\n/,"").split(' ');
+                console.log("成功存入玩家列表");
             }
             if (per2[0]===1 && per2[1]===1){
                 delay = (Date.now() - latesttime) / 1.5 ;
@@ -428,11 +447,11 @@ wss.on('connection', (ws) => {
 });
 
 async function handleCommand(msg,data,sendCommand) {
-    if(blacklist.includes(data.body.sender)){
+    let message=msg.split(' ');
+    if(blacklist.includes(data.body.sender) && message[0][0] === prefix){
         sendCommand(`me 黑名單玩家:${data.body.sender}嘗試使用功能，但是該玩家被封鎖`)
         return;
     }
-    let message=msg.split(' ');
     if (message[0] === `${prefix}say`) {
     sendCommand(`say ${message.slice(1).join(' ')}`); 
     }
@@ -478,7 +497,7 @@ async function handleCommand(msg,data,sendCommand) {
     }
     if (message[0] === `${prefix}ai`) {
         prompt=1; //手動召喚ai不用忽略不相關問題
-        const aiReply = handleAIChat(message.slice(1).join(' '), data.body.sender, sendCommand, true);
+        const aiReply = await handleAIChat(message.slice(1).join(' '), data.body.sender, sendCommand, true);
         if (aiReply !== "<()>") {
             ailog.push(`user:${data.body.sender}:${message.slice(1).join(' ')},ai:${aiReply}|`);
         }
@@ -781,11 +800,20 @@ async function askGroq(playerMessage, playername, sendCommand, showthink) {
             });
         }
 
+        sendCommand("list");
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log(`玩家列表:${playerlist.join(' ')}`);        
+
         // 當前玩家輸入與資料庫
         const libraryData = aiLib === "on" ? "，資料庫:" + await readFiles() : "";
         messages.push({ 
             role: "user", 
-            content: `${playername}說:${playerMessage}${airemember.length > 0 ? `，記憶:${airemember.join('|')}` : ""}${libraryData}` 
+            content: `${playername}說:${playerMessage}
+<external_data>
+${airemember.length > 0 ? "- 記憶" + airemember.join('|') : ""}
+${libraryData.length > 0 ? "- " + libraryData : ""}
+- 玩家列表:${playerlist.join(',')}
+</external_data>` 
         });
 
         const chatCompletion = await groq.chat.completions.create({
