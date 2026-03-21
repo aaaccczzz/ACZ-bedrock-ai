@@ -25,7 +25,9 @@ let {
     groqkey,
     openrouterkey,
     geminikey,
-    userName
+    userName,
+    blacklist,
+    consolename
 } = loadprop.loadprop(); //載入數值
 
 // 1. 建立伺服器，監聽 8080 端口
@@ -188,7 +190,7 @@ async function handleAIChat(playerQuestion, playerName, sendCommand, showthink) 
             chatHistory.shift();
         }
 
-        const userPrompt = `${playername}說:${playerMessage}${airemember.length > 0 ? `，記憶:${airemember.join('|')}` : ""}${libraryData}`;
+        const userPrompt = `${playername}說:${playerQuestion}${airemember.length > 0 ? `，記憶:${airemember.join('|')}` : ""}${libraryData}`;
         console.log(`\x1b[38;5;51m[AI 請求]\x1b[0m ${userPrompt}`);
 
         const chat = model.startChat({
@@ -261,14 +263,14 @@ wss.on('connection', (ws) => {
     } else if (trimmedInput.startsWith("!ai ")) {
         // 擴充功能：在終端機也能強制 AI 說話
         const aiQuery = trimmedInput.slice(4);
-        handleAIChat(aiQuery, "管理員", sendCommand);
+        handleAIChat(aiQuery, consolename, sendCommand);
     } else if (trimmedInput.startsWith(".")) {
-        handleCommand(trimmedInput, { body: { sender: "管理員" } }, sendCommand);
+        handleCommand(trimmedInput, { body: { sender: consolename } }, sendCommand);
     } else if (trimmedInput === "!clear") {
         console.clear();
     } else {
         // 普通文字則當作 say 廣播
-        sendCommand(`me §e[管理員]§f ${trimmedInput}`);
+        sendCommand(`me §e[${consolename}]§f ${trimmedInput}`);
     }
     });
 
@@ -426,6 +428,10 @@ wss.on('connection', (ws) => {
 });
 
 async function handleCommand(msg,data,sendCommand) {
+    if(blacklist.includes(data.body.sender)){
+        sendCommand(`me 黑名單玩家:${data.body.sender}嘗試使用功能，但是該玩家被封鎖`)
+        return;
+    }
     let message=msg.split(' ');
     if (message[0] === `${prefix}say`) {
     sendCommand(`say ${message.slice(1).join(' ')}`); 
@@ -701,13 +707,47 @@ async function handleCommand(msg,data,sendCommand) {
     }
     if (message[0] === `${prefix}devlist`) {
         if (tellmode === "raw") {
-            sendCommand(`tellraw "${data.body.sender}" {"rawtext":[{"text":"§l開發工具:§r\n ${prefix}system - 系統命令\n ${prefix}setai2 - 設定AI系統提示詞與模型\n ${prefix}resetai - 重置AI對話紀錄與記憶\n ${prefix}runjs - 運行js代碼\n ${prefix}devlist - 顯示開發者工具列表"}]}`);
+            sendCommand(`tellraw "${data.body.sender}" {"rawtext":[{"text":"§l開發工具:§r\n ${prefix}system - 系統命令\n ${prefix}setai2 - 設定AI系統提示詞與模型\n ${prefix}resetai - 重置AI對話紀錄與記憶\n ${prefix}runjs - 運行js代碼\n ${prefix}blacklist <name> - 禁止某位玩家執行指令\n ${prefix}devlist - 顯示開發者工具列表"}]}`);
         } else {
-            sendCommand(`tell "${data.body.sender}" 開發工具: ${prefix}system - 系統命令 ${prefix}setai2 - 設定AI系統提示詞與模型 ${prefix}resetai - 重置AI對話紀錄與記憶 ${prefix}runjs - 運行js代碼 ${prefix}devlist - 顯示開發者工具列表`);
+            sendCommand(`tell "${data.body.sender}" 開發工具: ${prefix}system - 系統命令 ${prefix}setai2 - 設定AI系統提示詞與模型 ${prefix}resetai - 重置AI對話紀錄與記憶 ${prefix}runjs - 運行js代碼 ${prefix}blacklist <name> - 禁止某位玩家執行指令 ${prefix}devlist - 顯示開發者工具列表`);
         }
     }
     if (message[0] === `${prefix}log`) {
         console.log(`當前AI模型: ${Aimodel}\n當前指令前綴: ${prefix}\n當前tell模式: ${tellmode}\nAI自動管理伺服器(opai): ${opai ? "開啟" : "關閉"}\nAI對話紀錄條數: ${ailog.length}\nAI對話紀錄: ${ailog.join('\n')}\nAI記憶條數: ${airemember.length}\nAI記憶: ${airemember.join('\n')}\nai是否正在思考: ${isaithinking ? "是" : "否"}\n伺服器狀態: ${serverstatus}\nai prompt目前狀態:${prompt2 === 0 ? "忽略" : "不忽略" }\n權限狀態:${per.join(' ')}\n權限判定狀態:${per2.join(' ')}\n讀取到的檔案: ${files}\ndebug:${aiLib === "on" ? "，資料庫:" + await readFiles() : ""}`);
+    }
+    if (message[0] === `${prefix}blacklist`){
+        if (data.body.sender === userName){
+            if (message[1] === "add"){
+                blacklist.push(message.slice(2).join(' '));
+                if (tellmode === "raw"){
+                    sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"成功把${message.slice(2).join(' ')}加入黑名單 當前:${blacklist.join(',')}"}]}`);
+                } else {
+                    sendCommand(`tell ${data.body.sender} 成功把${message.slice(2).join(' ')}加入黑名單 當前:${blacklist.join(',')}`);
+                }
+            } else if (message[1] === "remove") {
+                if (blacklist.indexOf(message.slice(2).join(' ')) !== -1 ) {
+                    blacklist.splice(blacklist.indexOf(message.slice(2).join(' ')),1);
+                } else {
+                    if (tellmode === "raw"){
+                        sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"失敗!找不到玩家:${message.slice(2).join(' ')}"}]}`);
+                    } else {
+                        sendCommand(`tell ${data.body.sender} 失敗!找不到玩家:${message.slice(2).join(' ')}`);
+                    }  
+                    return;
+                }
+                if (tellmode === "raw"){
+                    sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"玩家:${message.slice(2).join(' ')}從黑名單中刪除"}]}`);
+                } else {
+                    sendCommand(`tell ${data.body.sender} 玩家:${message.slice(2).join(' ')}從黑名單中刪除`);
+                }                    
+            } else if (message[1] === "list"){
+                if (tellmode === "raw"){
+                    sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"當前:${blacklist.join(',')}"}]}`);
+                } else {
+                    sendCommand(`tell ${data.body.sender} 當前:${blacklist.join(',')}`);
+                }                
+            }
+        }
     }
 }
 

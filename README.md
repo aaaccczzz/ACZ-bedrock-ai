@@ -52,13 +52,16 @@ function loadprop(){
 	groqkey: "YOUR_KEY",
 	openrouterkey: "YOUR_KEY",
 	geminikey: "YOUR_KEY",
-  userName: "YOUR_USERNAME"
+    userName: "YOUR_USERNAME",
+	blacklist: [],
+	consolename: "管理員"
     };
 }
 module.exports={loadprop};
 ```
 
 **把`YOUR_KEY`換成你的API**
+
 **把`YOUR_USERNAME`換成你的遊戲ID**
 
 ### 運行
