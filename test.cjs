@@ -101,15 +101,22 @@ async function askMinecraftAI(playerMessage,playername,sendCommand,showthink) {
         await sendCommand("list");
         await new Promise(resolve => setTimeout(resolve, 100));
         console.log(`玩家列表:${playerlist.join(' ')}`);
-        messages.push({ 
-            role: "user", 
-            content: `${playername}說:${playerMessage}
+        if (playername === "system"){
+            messages.push({
+                role: "user",
+                content: `<external_data>- 查詢結果:${playerMessage}，繼續回答用戶問題</external_data>`
+            });
+        } else {
+            messages.push({ 
+                role: "user", 
+                content: `${playername}說:${playerMessage}
 <external_data>
 ${airemember.length > 0 ? "- 記憶" + airemember.join('|') : ""}
 ${libraryData.length > 0 ? "- " + libraryData : ""}
 - 玩家列表:${playerlist.join(',')}
 </external_data>`
-        });
+            });
+        }
         completion = await openrouter.chat.completions.create({
             model: Aimodel, 
             messages: messages,
@@ -119,6 +126,15 @@ ${libraryData.length > 0 ? "- " + libraryData : ""}
         const reply = completion.choices[0].message.content;
         const lines = reply.split(/\n+/);
         
+        if (reply !== "<()>" && reply !== "?" && reply) {
+            ailog.push(`user:${playername}:${playerMessage},ai:${reply}|`);
+        }
+        console.log(`\x1b[38;5;244mAI對話紀錄:\n${ailog.join('\n')}\x1b[0m`);
+        console.log(`\x1b[38;5;244mAI記憶內容:\n${airemember.join('\n')}\x1b[0m`);
+        if (ailog.length>20){
+            ailog.shift();
+        }
+
         for (const line of lines) {
             console.log("AI 回覆:", reply);
             if (args[1] === "debug"){
@@ -146,15 +162,9 @@ ${libraryData.length > 0 ? "- " + libraryData : ""}
                     const forgetContent = line.trim().slice(7).trim();
                     airemember = airemember.filter(item => !item.includes(forgetContent));
                     sendCommand(`me §b[記憶]§f 已刪除包含 "${forgetContent}" 的紀錄`);
-                } else if (line.startsWith(".scarch")) {
-                    if (files.includes(line.trim().slice(7).trim())) {
-                        let aiscarch= await fs.readFile(`./ai-lib/${line.trim().slice(7).trim()}.txt`, 'utf-8');
-                        askMinecraftAI(`命令使用方式:\n${aiscarch}，剛剛用戶問的問題:${ailog[ailog.length - 1]}`, "AI查詢結果", sendCommand, true);
-                        console.log(`AI 查詢指令: ${line.trim().slice(7).trim()} 查詢結果:\n${aiscarch}，剛剛用戶問的問題:${playerMessage}`);
-                    } else {
-                        askMinecraftAI(`沒有查詢到相關指令使用說明，請確認指令開頭是否正確。`, "AI查詢結果", sendCommand, true);
-                        console.log(`AI 查詢指令: ${line.trim().slice(7).trim()} 查無結果`);
-                    }
+                } else if (line.startsWith(".search")) {
+                    console.log(`查詢的結果:${await search(line.trim().slice(7).trim())}`);
+                    askMinecraftAI(await search(line.trim().slice(7).trim()),"system",sendCommand,true);
                 } else if (line.trim() !== "<()>") {
                     sendCommand(`me §b[${Aimodel}]§f ${line.trim()}`);
                 }
@@ -199,15 +209,18 @@ async function handleAIChat(playerQuestion, playerName, sendCommand, showthink) 
         sendCommand("list");
         await new Promise(resolve => setTimeout(resolve, 100));
         console.log(`玩家列表:${playerlist.join(' ')}`);
-
-        const userPrompt =`${playerName}說:${playerQuestion}
+        let userPrompt="NULL";
+        if (playerName === "system") {
+            userPrompt =`<external_data>- 查詢結果:${playerQuestion}，繼續回答用戶問題</external_data>`
+        } else {
+            userPrompt =`${playerName}說:${playerQuestion}
 <external_data>
 ${airemember.length > 0 ? "- 記憶" + airemember.join('|') : ""}
 ${libraryData.length > 0 ? "- " + libraryData : ""}
 - 玩家列表:${playerlist.join(',')}
 </external_data>`
+        }
         console.log(`\x1b[38;5;51m[AI 請求]\x1b[0m ${userPrompt}`);
-
         const chat = model.startChat({
             history: chatHistory,
             generationConfig: { temperature: 0.3 },
@@ -216,6 +229,15 @@ ${libraryData.length > 0 ? "- " + libraryData : ""}
         const result = await chat.sendMessage(userPrompt);
         const response = await result.response;
         const reply = response.text();
+
+        if (reply !== "<()>") {
+            ailog.push(`user:${playerName}:${playerQuestion},ai:${reply}|`);
+        }
+        console.log(`\x1b[38;5;244mAI對話紀錄:\n${ailog.join('\n')}\x1b[0m`);
+        console.log(`\x1b[38;5;244mAI記憶內容:\n${airemember.join('\n')}\x1b[0m`);
+        if (ailog.length>20){
+            ailog.shift();
+        }
 
         // 處理回覆邏輯
         const cleanText = reply.replace(/[*#_>`]/g, "").trim();
@@ -237,10 +259,12 @@ ${libraryData.length > 0 ? "- " + libraryData : ""}
                 const target = trimmed.slice(7).trim();
                 airemember = airemember.filter(item => !item.includes(target));
                 sendCommand(`me §b[記憶]§f 已刪除包含 "${target}" 的紀錄`);
+            } else if (trimmed.startsWith(".search")) {
+                console.log(`查詢的結果:${await search(line.trim().slice(7).trim())}`);
+                handleAIChat(await search(line.trim().slice(7).trim()),"system",sendCommand,true);
             } else {
                 sendCommand(`me §b[Gemini]§f ${trimmed}`);
             }
-            await new Promise((resolve) => setTimeout(resolve, 300));
         }
 
         isaithinking = false;
@@ -420,14 +444,6 @@ wss.on('connection', (ws) => {
                     prompt=0; //自動回復看場景回答問題
                     if (user !== "外部" && !msg.startsWith(`${prefix}`)){ //ai自動管理伺服器開啟中，且發話者不是外部(代表是玩家)，就讓AI回覆
                         const aiReply = await askMinecraftAI(`${msg}`,user,sendCommand,false);
-                        if (aiReply !== "<()>" && aiReply !== "?" && aiReply) {
-                            ailog.push(`user:${user}:${msg},ai:${aiReply}|`);
-                        }
-                        console.log(`\x1b[38;5;244mAI對話紀錄:\n${ailog.join('\n')}\x1b[0m`);
-                        console.log(`\x1b[38;5;244mAI記憶內容:\n${airemember.join('\n')}\x1b[0m`);
-                        if (ailog.length>20){
-                            ailog.shift();
-                        }
                     }
                 }
                 handleCommand(msg,data,sendCommand);
@@ -497,39 +513,15 @@ async function handleCommand(msg,data,sendCommand) {
     }
     if (message[0] === `${prefix}ai`) {
         prompt=1; //手動召喚ai不用忽略不相關問題
-        const aiReply = await handleAIChat(message.slice(1).join(' '), data.body.sender, sendCommand, true);
-        if (aiReply !== "<()>") {
-            ailog.push(`user:${data.body.sender}:${message.slice(1).join(' ')},ai:${aiReply}|`);
-        }
-        console.log(`\x1b[38;5;244mAI對話紀錄:\n${ailog.join('\n')}\x1b[0m`);
-        console.log(`\x1b[38;5;244mAI記憶內容:\n${airemember.join('\n')}\x1b[0m`);
-        if (ailog.length>20){
-            ailog.shift();
-        }
+        await handleAIChat(message.slice(1).join(' '), data.body.sender, sendCommand, true);
     }
     if (message[0] === `${prefix}ai2`){
         prompt=1; //手動召喚ai不用忽略不相關問題
-        const aiReply = await askMinecraftAI(message.slice(1).join(' '), data.body.sender, sendCommand, true);
-        if (aiReply !== "<()>") {
-            ailog.push(`user:${data.body.sender}:${message.slice(1).join(' ')},ai:${aiReply}|`);
-        }
-        console.log(`\x1b[38;5;244mAI對話紀錄:\n${ailog.join('\n')}\x1b[0m`);
-        console.log(`\x1b[38;5;244mAI記憶內容:\n${airemember.join('\n')}\x1b[0m`);
-        if (ailog.length>20){
-            ailog.shift();
-        }
+        await askMinecraftAI(message.slice(1).join(' '), data.body.sender, sendCommand, true);
     }
     if (message[0] === `${prefix}ai3`){
         prompt=1; //手動召喚ai不用忽略不相關問題
-        const aiReply = await askGroq(message.slice(1).join(' '), data.body.sender, sendCommand, true);
-        if (aiReply !== "<()>") {
-            ailog.push(`user:${data.body.sender}:${message.slice(1).join(' ')},ai:${aiReply}|`);
-        }
-        console.log(`\x1b[38;5;244mAI對話紀錄:\n${ailog.join('\n')}\x1b[0m`);
-        console.log(`\x1b[38;5;244mAI記憶內容:\n${airemember.join('\n')}\x1b[0m`);
-        if (ailog.length>20){
-            ailog.shift();
-        }
+        await askGroq(message.slice(1).join(' '), data.body.sender, sendCommand, true);
     }
     if (message[0] === `${prefix}subscribe`) {
     subscribe(message[1]);
@@ -806,16 +798,24 @@ async function askGroq(playerMessage, playername, sendCommand, showthink) {
 
         // 當前玩家輸入與資料庫
         const libraryData = aiLib === "on" ? "，資料庫:" + await readFiles() : "";
-        messages.push({ 
-            role: "user", 
-            content: `${playername}說:${playerMessage}
+        
+        if(playername === "system"){
+            console.log(`用戶傳給ai的資料:<external_data>查詢結果:${playerMessage}，請繼續回答用戶問題</external_data>`);
+            messages.push({ 
+                role: "user", 
+                content: `<external_data>查詢結果:${playerMessage}，請繼續回答用戶問題</external_data>` 
+            });
+        } else {
+            messages.push({ 
+                role: "user", 
+                content: `${playername}說:${playerMessage}
 <external_data>
 ${airemember.length > 0 ? "- 記憶" + airemember.join('|') : ""}
 ${libraryData.length > 0 ? "- " + libraryData : ""}
 - 玩家列表:${playerlist.join(',')}
 </external_data>` 
-        });
-
+            });
+        }
         const chatCompletion = await groq.chat.completions.create({
             "messages": messages,
             "model": groqmodel,
@@ -844,6 +844,14 @@ ${libraryData.length > 0 ? "- " + libraryData : ""}
             console.log("\x1b[38;5;214m╚══════════════════════════════════════════╝\x1b[0m");
         }
 
+        if (lines.join('\n') !== "<()>") {
+            ailog.push(`user:${playername}:${playerMessage},ai:${lines.join('\n')}|`);
+        }
+        console.log(`\x1b[38;5;244mAI對話紀錄:\n${ailog.join('\n')}\x1b[0m`);
+        console.log(`\x1b[38;5;244mAI記憶內容:\n${airemember.join('\n')}\x1b[0m`);
+        if (ailog.length>20){
+            ailog.shift();
+        }
 
         for (const line of lines) {
             const trimmed = line.trim();
@@ -861,6 +869,9 @@ ${libraryData.length > 0 ? "- " + libraryData : ""}
                 const forgetContent = trimmed.slice(7).trim();
                 airemember = airemember.filter(item => !item.includes(forgetContent));
                 sendCommand(`me §b[記憶]§f 已刪除包含 "${forgetContent}" 的紀錄`);
+            } else if (trimmed.startsWith(".search")) {
+                console.log(`查詢結果:${await search(trimmed.slice(7).trim())}`)
+                await askGroq(await search(trimmed.slice(7).trim()),"system",sendCommand,true)   
             } else {
                 sendCommand(`me §b[Groq]§f ${trimmed}`);
             }
@@ -875,5 +886,44 @@ ${libraryData.length > 0 ? "- " + libraryData : ""}
         if (showthink) sendCommand(`me §c[系統] Groq 呼叫失敗: ${error.message}`);
         console.log(`召喚其他ai嘗試`);
         return await askMinecraftAI(playerQuestion, playerName, sendCommand, showthink);
+    }
+}
+
+async function search(query) {
+    try {
+        // 構建 URL (加入 kad=wt-wt 優先使用全球資料，也可改 zh-tw)
+        const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // 優先順序：1. 直接摘要 -> 2. 相關話題的第一條 -> 3. 找不到
+        let result = "";
+
+        if (data.AbstractText) {
+            result = data.AbstractText;
+        } else if (data.RelatedTopics && data.RelatedTopics.length > 0) {
+            // 有些結果在 RelatedTopics 裡，過濾掉沒有 Text 的項目
+            const firstTopic = data.RelatedTopics.find(topic => topic.Text);
+            result = firstTopic ? firstTopic.Text : "查無直接摘要。";
+        } else {
+            result = "查無相關資料，請嘗試更換關鍵字。";
+        }
+
+        // 限制長度，避免 AI 上下文過長
+        return result.length > 500 ? result.substring(0, 500) + "..." : result;
+
+    } catch (error) {
+        console.error("\x1b[31m[搜尋錯誤]\x1b[0m", error.message);
+        return "搜尋失敗，請檢查網路連線或稍後再試。";
     }
 }
