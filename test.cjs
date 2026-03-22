@@ -50,6 +50,120 @@ let playerlist=[];
 const groq = new Groq({ apiKey:groqkey});
 readFiles();
 
+const bopomofoMap = {
+    '1':'ㄅ','q':'ㄆ','a':'ㄇ','z':'ㄈ','2':'ㄉ','w':'ㄊ','s':'ㄋ','x':'ㄌ',
+    'e':'ㄍ','d':'ㄎ','c':'ㄏ','r':'ㄐ','f':'ㄑ','v':'ㄒ','5':'ㄓ','t':'ㄔ',
+    'g':'ㄕ','b':'ㄖ','y':'ㄗ','h':'ㄘ','n':'ㄙ','8':'ㄚ','i':'ㄛ','k':'ㄜ',
+    'm':'ㄩ','9':'ㄞ','o':'ㄟ','l':'ㄠ',',':'ㄝ','0':'ㄢ','p':'ㄣ',';':'ㄤ',
+    '.':'ㄡ','-':'ㄦ','u':'ㄧ','j':'ㄨ','3':'ˇ','4':'ˋ','6':'ˊ','7':'˙',' ':'-','/':'ㄥ'
+};
+const pinyinMap = {
+    "ㄅ": "b", "ㄆ": "p", "ㄇ": "m", "ㄈ": "f", "ㄉ": "d", "ㄊ": "t", "ㄋ": "n", "ㄌ": "l",
+    "ㄍ": "g", "ㄎ": "k", "ㄏ": "h", "ㄐ": "j", "ㄑ": "q", "ㄒ": "x",
+    "ㄓ": "zh", "ㄔ": "ch", "ㄕ": "sh", "ㄖ": "r", "ㄗ": "z", "ㄘ": "c", "ㄙ": "s",
+    "ㄚ": "a", "ㄛ": "o", "ㄜ": "e", "ㄝ": "e", 
+    "ㄞ": "ai", "ㄟ": "ei", "ㄠ": "ao", "ㄡ": "ou",
+    "ㄢ": "an", "ㄣ": "en", "ㄤ": "ang", "ㄥ": "eng", "ㄦ": "er",
+    "ㄧ": "i", "ㄨ": "u", "ㄩ": "u",
+    "ˊ": " ", "ˇ": " ", "ˋ": " ", "˙": " ", "-": " "
+};
+
+function zhuyinToPinyin(zhuyin) {
+    const toneMatch = zhuyin.match(/[ˊˇˋ˙-]/) || ["-"];
+    const tone = pinyinMap[toneMatch[0]];
+    const body = zhuyin.replace(/[ˊˇˋ˙-]/, ""); // 去掉聲調的部分
+
+    const initials = "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙ";
+    let initial = "";
+    let final = body;
+
+    if (initials.includes(body[0])) {
+        initial = pinyinMap[body[0]];
+        final = body.substring(1);
+    }
+    let pinyinFinal = final;
+    if (final.startsWith("ㄧ")) {
+        if (!initial) { // 無聲母：i -> y
+            const map = { "ㄧ": "yi", "ㄧㄚ": "ya", "ㄧㄛ": "yo", "ㄧㄝ": "ye", "ㄧㄠ": "yao", "ㄧㄡ": "you", "ㄧㄢ": "yan", "ㄧㄣ": "yin", "ㄧㄤ": "yang", "ㄧㄥ": "ying" };
+            pinyinFinal = map[final] || final.replace("ㄧ", "y");
+        } else { // 有聲母
+            const map = { "ㄧ": "i", "ㄧㄚ": "ia", "ㄧㄝ": "ie", "ㄧㄠ": "iao", "ㄧㄡ": "iu", "ㄧㄢ": "ian", "ㄧㄣ": "in", "ㄧㄤ": "iang", "ㄧㄥ": "ing" };
+            pinyinFinal = map[final] || final.replace("ㄧ", "i");
+        }
+    }
+    else if (final.startsWith("ㄨ")) {
+        if (!initial) { // 無聲母：u -> w
+            const map = { "ㄨ": "wu", "ㄨㄚ": "wa", "ㄨㄛ": "wo", "ㄨㄞ": "wai", "ㄨㄟ": "wei", "ㄨㄢ": "wan", "ㄨㄣ": "wen", "ㄨㄤ": "wang", "ㄨㄥ": "weng" };
+            pinyinFinal = map[final] || final.replace("ㄨ", "w");
+        } else { // 有聲母
+            const map = { "ㄨ": "u", "ㄨㄚ": "ua", "ㄨㄛ": "uo", "ㄨㄞ": "uai", "ㄨㄟ": "ui", "ㄨㄢ": "uan", "ㄨㄣ": "un", "ㄨㄤ": "uang", "ㄨㄥ": "ong" };
+            pinyinFinal = map[final] || final.replace("ㄨ", "u");
+        }
+    }
+    else if (final.startsWith("ㄩ")) {
+        if (!initial) { // 無聲母：yu
+            const map = { "ㄩ": "yu", "ㄩㄝ": "yue", "ㄩㄢ": "yuan", "ㄩㄣ": "yun", "ㄩㄥ": "yong" };
+            pinyinFinal = map[final] || final.replace("ㄩ", "yu");
+        } else { // 有聲母 (j, q, x 要去點，n, l 要保留但通常寫成 v)
+            let uChar = (initial === "j" || initial === "q" || initial === "x") ? "u" : "v";
+            const map = { "ㄩ": uChar, "ㄩㄝ": uChar+"e", "ㄩㄢ": uChar+"an", "ㄩㄣ": uChar+"n", "ㄩㄥ": "iong" };
+            pinyinFinal = map[final] || final.replace("ㄩ", uChar);
+        }
+    }
+    else {
+        pinyinFinal = pinyinMap[final] || final;
+    }
+    return initial + pinyinFinal + tone;
+}
+function translateSentenceToPinyin(input) {
+    const tones = "ˊˇˋ˙- ";
+    const initials = "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙ";
+    const medials = "ㄧㄨㄩ";
+    let result = "";
+    let buffer = "";
+
+    for (let i = 0; i < input.length; i++) {
+        let char = input[i];
+        buffer += char;
+
+        // 判斷音節何時結束並送出轉換
+        let shouldFlush = false;
+
+        // 1. 遇到聲調符號，這一定是音節的結束
+        if (tones.includes(char)) {
+            shouldFlush = true;
+        } 
+        // 2. 如果下一個字是「聲母」，代表當前音節已結束（漏打聲調的情況）
+        else if (i + 1 < input.length && initials.includes(input[i+1])) {
+            buffer += "-"; // 自動補一聲
+            shouldFlush = true;
+        }
+        // 3. 如果當前已經有介母(ㄧㄨㄩ)且下一個又是介母，代表是新音節（例如 ㄧㄨ -> ㄧ, ㄨ）
+        else if (i + 1 < input.length && medials.includes(input[i+1]) && buffer.split('').some(c => medials.includes(c))) {
+            buffer += "-";
+            shouldFlush = true;
+        }
+
+        if (shouldFlush) {
+            result += zhuyinToPinyin(buffer);
+            buffer = "";
+        }
+    }
+    return result;
+}
+function translateToBopomofo(input) {
+
+    const regex = /([a-z125890,.;/-]{1,3}[3467 ])/g;
+    
+    let matches = input.match(regex);
+    if (!matches) return input; // 如果完全不符合注音格式，回傳原字串
+
+    return matches.map(word => {
+        return word.split('').map(char => bopomofoMap[char] || char).join('');
+    }).join('');
+}
+
+
 async function openfiles(fils) {
     fileopen=[];
     for (const file of fils) {
@@ -437,6 +551,10 @@ wss.on('connection', (ws) => {
                 const msg = data.body.message;
                 const user = data.body.sender;
 
+                if(/([a-z125890,.;/-]{1,3}[3467 ])/g.test(msg) && data.body.sender !== "外部"){
+                    sendCommand("me 偵測到錯字，翻譯:" + translateToBopomofo(msg));
+                    sendCommand("me 偵測到錯字，翻譯:" + translateSentenceToPinyin(translateToBopomofo(msg)));
+                }
                 if (user !== "外部") {  //消息控制台顯示
                     console.log(`\x1b[38;5;208m[訊息]${user} 說: ${msg}\x1b[0m`);
                 }
