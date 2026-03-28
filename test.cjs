@@ -9,7 +9,8 @@ const Groq = require('groq-sdk');
 const loadprop = require('./loadprop.js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const wss = new WebSocket.Server({ port: 8080 });
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const pendingRequests = new Map();
 
 let {
     scarchCommandlist,
@@ -48,7 +49,296 @@ let delay=0;
 let tps=20;
 let playerlist=[];
 const groq = new Groq({ apiKey:groqkey});
+let translaeToChinese=false;
+let codejson;
+let speed=20;
+let stop=false;
+let lastMessage;
 readFiles();
+
+class aczscript {
+    // 輔助函數：精準抓取大括號內的內容，支援巢狀結構
+    extractBlock(text, keyword) {
+        const startIdx = text.indexOf(keyword);
+        if (startIdx === -1) return null;
+
+        const openBraceIdx = text.indexOf('{', startIdx);
+        if (openBraceIdx === -1) return null;
+
+        let count = 1;
+        let i = openBraceIdx + 1;
+        while (count > 0 && i < text.length) {
+            if (text[i] === '{') count++;
+            else if (text[i] === '}') count--;
+            i++;
+        }
+        return text.slice(openBraceIdx + 1, i - 1).trim();
+    }
+
+    scriptToJSON(rawText) {
+        const json = {
+            data: {},
+            code: { repeat: 0, steps: [] },
+            lists: {}
+        };
+
+        // 1. 提取 .data
+        const dataContent = this.extractBlock(rawText, '.data');
+        if (dataContent) {
+            dataContent.split('\n').forEach(line => {
+                if (line.includes('=')) {
+                    const [k, v] = line.split('=').map(s => s.trim());
+                    json.data[k] = isNaN(v) ? v : parseInt(v);
+                }
+            });
+        }
+
+        // 2. 提取 .code
+        const codeHeaderMatch = rawText.match(/\.code\s*\((\d+)\)/);
+        if (codeHeaderMatch) {
+            json.code.repeat = parseInt(codeHeaderMatch[1]);
+            const codeContent = this.extractBlock(rawText, '.code');
+            json.code.steps = this.parseCodeSteps(codeContent);
+        }
+
+        // 3. 提取 commandlist
+        const listRegex = /commandlist\s*\((\d+)\)\s*{/g;
+        let match;
+        while ((match = listRegex.exec(rawText)) !== null) {
+            const id = match[1];
+            const listContent = this.extractBlock(rawText.slice(match.index), 'commandlist');
+            json.lists[id] = this.expandSugarToRawCommands(listContent);
+        }
+
+        return json;
+    }
+
+    // 核心修改：將所有步驟轉換為帶有 type 的物件
+    parseCodeSteps(text) {
+        if (!text) return [];
+        let steps = [];
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+        
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+
+            // 1. 處理 if 區塊
+            if (line.startsWith('if')) {
+                const condition = line.match(/\((.*?)\)/)?.[1];
+                let ifBodyRaw = [];
+                i++; 
+                while (i < lines.length && lines[i] !== '}') {
+                    ifBodyRaw.push(lines[i]);
+                    i++;
+                }
+                steps.push({ 
+                    type: "if", 
+                    condition: condition, 
+                    body: this.parseCodeSteps(ifBodyRaw.join('\n')) // 遞迴解析
+                });
+            } 
+            // 2. 處理函數呼叫 (commandlist)
+            else if (line.startsWith('commandlist')) {
+                const target = line.match(/\((.*?)\)/)?.[1] || line.match(/%(\w+)/)?.[0];
+                steps.push({
+                    type: "call",
+                    target: target.replace(/[()]/g, '') // 移除括號
+                });
+            }
+            // 3. 處理變數運算 (op)
+            else if (line.includes('=') || line.includes('++') || line.includes('--')) {
+                steps.push({
+                    type: "op",
+                    expression: line
+                });
+            }
+        }
+        return steps;
+    }
+
+    expandSugarToRawCommands(text) {
+        let commands = [];
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+        let currentPrefix = "";
+        let inBlock = false;
+
+        lines.forEach(line => {
+            if (line.includes('{')) {
+                currentPrefix = line.replace('{', '').trim();
+                inBlock = true;
+            } else if (line.trim() === '}') {
+                inBlock = false;
+                currentPrefix = "";
+            } else {
+                const finalCmd = inBlock ? `${currentPrefix} ${line}` : line;
+                commands.push(finalCmd);
+            }
+        });
+        return commands;
+    }
+
+    async scriptRead(filePath) {
+        try {
+            const file = await fs.readFile(filePath, 'utf8'); // 使用 readFile 而不是 readFileSync
+            if (args[0] === "debug"){
+                console.log("解析", JSON.stringify(acz.scriptToJSON(file), null, 4));
+                codejson = acz.scriptToJSON(file);
+                console.log("speed:",codejson.data.speed);
+            } else {
+                console.log("\x1b[1;90m[狀態消息]\x1b[0m 序列轉換");
+                codejson = acz.scriptToJSON(file);
+                console.log("speed:",codejson.data.speed);
+            }
+            return acz.scriptToJSON(file);
+        } catch (err) {
+            console.error("讀取失敗:", err);
+        }
+    }
+
+    async runcode(code, sendCommand) {
+        const { data, lists } = code;
+
+        // 核心執行器
+        const executeSteps = async (steps) => {
+            for (let i = 0; i < steps.length; i++) {
+                const step = steps[i];
+                
+                switch (step.type) {
+                    case "call":
+                        let targetKey = step.target;
+                        if (typeof targetKey === 'string' && targetKey.startsWith('%')) {
+                            targetKey = data[targetKey.substring(1)];
+                        }
+
+                        const commands = lists[targetKey];
+                        if (commands) {
+                            const currentDataSnapshot = { ...data };
+
+                            for (const originalCmd of commands) {
+                                let finalCmd = originalCmd;
+                                for (const [key, value] of Object.entries(currentDataSnapshot)) {
+                                    finalCmd = finalCmd.split(`%${key}`).join(value);
+                                }
+
+                                // --- 核心邏輯：判斷後續是否有依賴 ---
+                                // 檢查從下一個步驟 (i+1) 開始，有沒有 if 或 op 涉及 status/last_message
+                                const needsSync = steps.slice(i + 1).some(next => 
+                                    (next.type === "if" && (next.condition.includes("status") || next.condition.includes("last_message"))) ||
+                                    (next.type === "op" && (next.expression.includes("status") || next.expression.includes("last_message")))
+                                );
+
+                                if (needsSync) {
+                                    // 需要讀取，使用 await 並更新 data
+                                    const response = await sendCommand(finalCmd, false);
+                                    data.status = response?.body?.statusCode ?? -1;
+                                    data.last_message = response?.body?.statusMessage || "";
+                                } else {
+                                    // 不需要讀取，直接發送不等待
+                                    sendCommand(finalCmd, false);
+                                }
+                            }
+                            
+                            if (data.speed > 0) {
+                                await new Promise(r => setTimeout(r, 1000 / data.speed));
+                            }
+                        }
+                        break;
+
+                    case "if":
+                        if (this.evaluateCondition(step.condition, data) && step.body) {
+                            await executeSteps(step.body);
+                        }
+                        break;
+
+                    case "op":
+                        this.handleExpression(step.expression, data);
+                        break;
+                }
+            }
+        };
+        if (code.code.repeat !== 0) {
+            for (let i = 0; i < code.code.repeat; i++) {
+                if(stop){
+                    stop=false;
+                    break;
+                }
+                await executeSteps(code.code.steps);
+            }
+        } else {
+            while(1) {
+                if (stop) {
+                    stop=false;
+                    break;
+                }
+                await executeSteps(code.code.steps);
+            }
+        }
+    }
+
+    // 支援動態判斷，包括我們剛存進去的 status
+    evaluateCondition(cond, data) {
+        // 支援直接寫變數名 (如 "b")
+        if (data.hasOwnProperty(cond) && typeof data[cond] === 'boolean') {
+            return data[cond];
+        }
+
+        // 支援比較運算 (如 "e!=0" 或 "status==0")
+        const match = cond.match(/^(\w+)(!=|==)([-\d]+)$/);
+        if (match) {
+            const [_, name, op, val] = match;
+            const currentVal = data[name];
+            // 注意：這裡要轉型成數字比較
+            return op === '!=' ? currentVal != val : currentVal == val;
+        }
+        
+        return true;
+    }
+
+    handleExpression(expr, data) {
+        // 匹配 變數 操作符 值 (支援 +=, -=, =)
+        const match = expr.match(/^(\w+)(\+=|-=|=)(.+)$/);
+        
+        if (!match) {
+            // 處理基礎的 e++, e--
+            if (expr.endsWith('++')) data[expr.slice(0, -2)]++;
+            if (expr.endsWith('--')) data[expr.slice(0, -2)]--;
+            return;
+        }
+
+        let [_, name, op, value] = match;
+
+        // 1. 處理引號，提取純字串內容
+        if (value.startsWith('"') && value.endsWith('"')) {
+            value = value.slice(1, -1);
+        } else if (!isNaN(value)) {
+            value = Number(value);
+        }
+
+        // 取得當前變數的值，若無則預設為空字串或 0
+        const current = data.hasOwnProperty(name) ? data[name] : (typeof value === 'string' ? "" : 0);
+
+        switch (op) {
+            case "+=":
+                data[name] = current + value;
+                break;
+
+            case "-=":
+                if (typeof current === 'string' && typeof value === 'string') {
+                    // --- 關鍵點：使用 replaceAll 達成全局替代 ---
+                    // 這會把 current 中所有的 value 都換成空字串 ""
+                    data[name] = current.replaceAll(value, "");
+                } else {
+                    data[name] = current - value;
+                }
+                break;
+
+            case "=":
+                data[name] = value;
+                break;
+        }
+    }
+}
+acz = new aczscript();
 
 const bopomofoMap = {
     '1':'ㄅ','q':'ㄆ','a':'ㄇ','z':'ㄈ','2':'ㄉ','w':'ㄊ','s':'ㄋ','x':'ㄌ',
@@ -428,48 +718,69 @@ wss.on('connection', (ws) => {
     });
 
     // --- A.發送指令工具 (像 C++ 的 Member Function) ---
-    const sendCommand = (cmd) => {
-        cmd = cmd.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
-        if (not_allow_command.includes(cmd.split(' ')[0])){
-            sendCommand(`me §c[系統]§f 禁止使用 ${cmd.split(' ')[0]} 指令`);
-            return;
-        }
-        if (serverstatus==="close"){
-            if (!(cmd.startsWith("me") || cmd.startsWith("say") || cmd.startsWith("tell") || cmd.startsWith("tellraw") || cmd.startsWith("kill") || cmd.startsWith("tp") || cmd.startsWith("summon") || cmd.startsWith("give") || cmd.startsWith("clear"))){
+    const sendCommand = (cmd,cleshow = true) => {
+        return new Promise((resolve) => {
+            const rid = Math.random().toString(36).substring(7);
+            cmd = cmd.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
+            for (let i=0;i<cmd.split(' ').length;i++){
+                if (not_allow_command.includes(cmd.split(' ')[i])){
+                    const msg = {
+                        header: {
+                            version: 1,
+                            requestId: rid,
+                            messagePurpose: "commandRequest",
+                            messageType: "commandRequest"
+                        },
+                        body: {
+                            commandLine: `me §c禁止使用${cmd.split(' ')[i]}指令`,
+                            version: commandversion
+                        }
+                    };
+                    ws.send(JSON.stringify(msg));
+                    console.log(`\x1b[38;5;100m[OUT]\x1b[0m 已送出指令: \x1b[38;5;100m${cmd}\x1b[0m`);
+                    return {body:{statusCode: 0,statusMessage: "指令無權限"}};
+                }
+            }   
+            if (serverstatus==="close"){
+                if (!(cmd.startsWith("me") || cmd.startsWith("say") || cmd.startsWith("tell") || cmd.startsWith("tellraw") || cmd.startsWith("kill") || cmd.startsWith("tp") || cmd.startsWith("summon") || cmd.startsWith("give") || cmd.startsWith("clear"))){
+                    const msg = {
+                        header: {
+                            version: 1,
+                            requestId: rid, // 隨機產生 ID
+                            messagePurpose: "commandRequest",
+                            messageType: "commandRequest"
+                        },
+                        body: {
+                            commandLine: "me §c[系統]§f當前伺服器處於無人管制 禁止指令使用",
+                            version: commandversion
+                        }
+                    };
+                    ws.send(JSON.stringify(msg));
+                    console.log(`\x1b[38;5;100m[OUT]\x1b[0m 已送出指令: \x1b[38;5;100m${cmd}\x1b[0m`);
+                    return {body:{statusCode: 0,statusMessage: "指令無權限"}} ;
+                }
+            }
             const msg = {
-            header: {
-                version: 1,
-                requestId: Math.random().toString(36).substring(7), // 隨機產生 ID
-                messagePurpose: "commandRequest",
-                messageType: "commandRequest"
-            },
-            body: {
-                commandLine: "me §c[系統]§f當前伺服器處於無人管制 禁止指令使用",
-                version: commandversion
+                header: {
+                    version: 1,
+                    requestId: rid, // 隨機產生 ID
+                    messagePurpose: "commandRequest",
+                    messageType: "commandRequest"
+                },
+                body: {
+                    commandLine: cmd,
+                    version: commandversion
+                }
+            };
+            pendingRequests.set(rid, resolve);
+            ws.send(JSON.stringify(msg));  
+            if (cleshow){ 
+                console.log(`\x1b[38;5;100m[OUT]\x1b[0m 已送出指令: \x1b[38;5;100m${cmd}\x1b[0m`);
             }
-        };
-        ws.send(JSON.stringify(msg));
-        console.log(`\x1b[38;5;100m[OUT]\x1b[0m 已送出指令: \x1b[38;5;100m${cmd}\x1b[0m`);
-                return;
-            }
-        }
-        const msg = {
-            header: {
-                version: 1,
-                requestId: Math.random().toString(36).substring(7), // 隨機產生 ID
-                messagePurpose: "commandRequest",
-                messageType: "commandRequest"
-            },
-            body: {
-                commandLine: cmd,
-                version: commandversion
-            }
-        };
-        ws.send(JSON.stringify(msg));
-        console.log(`\x1b[38;5;100m[OUT]\x1b[0m 已送出指令: \x1b[38;5;100m${cmd}\x1b[0m`);
+        });
     };
 
-    // --- B. 封裝「訂閱事件」的工具 ---
+        // --- B. 封裝「訂閱事件」的工具 ---
     const subscribe = (eventName) => {
         const sub = {
             header: {
@@ -485,8 +796,8 @@ wss.on('connection', (ws) => {
     };
 
     // --- C. 初始化：連線後立刻做的事情 ---
-    setTimeout(() => {
-        sendCommand("me JS 伺服器已連線");
+    setTimeout(async () => {
+        console.log("發送! 回傳:", await sendCommand("me JS 伺服器已連線"));
         subscribe("PlayerMessage"); // 訂閱玩家聊天
         console.log("\x1b[38;5;45m[SUB]\x1b[0m 已送出訂閱請求：PlayerMessage");
     }, 500);
@@ -495,14 +806,23 @@ wss.on('connection', (ws) => {
     ws.on('message', async (packet) => {
         try {
             const data = JSON.parse(packet);
-
+            const rid = data.header.requestId;
+            if (pendingRequests.has(rid)) {
+                const resolve = pendingRequests.get(rid);
+                resolve(data); 
+                pendingRequests.delete(rid);
+            }   
             // 1. 從 header 抓取事件名稱
             const eventName = data.header.eventName;
             const logmessage = data.body.statusMessage;
             if (args[0] === "debug") {
                 console.log("\x1b[38;5;244m收到Json訊息:\n" + JSON.stringify(data, null, 2) + "\x1b[0m");
             } 
-            if (logmessage) console.log(`\x1b[38;5;244m[狀態訊息]\x1b[0m ${logmessage}`);
+
+            
+            if (logmessage && logmessage !== lastMessage) console.log(`\x1b[38;5;244m[狀態訊息]\x1b[0m ${logmessage}`);
+            if (logmessage) lastMessage=logmessage;
+
             if (logmessage?.includes("將最多")){
                 per[0] = 2;
                 per2[0]=1;
@@ -550,11 +870,6 @@ wss.on('connection', (ws) => {
                 // 2. 從 body 抓取小寫的 message 和 sender
                 const msg = data.body.message;
                 const user = data.body.sender;
-
-                if(/([a-z125890,.;/-]{1,3}[3467 ])/g.test(msg) && data.body.sender !== "外部"){
-                    sendCommand("me 偵測到錯字，翻譯:" + translateToBopomofo(msg));
-                    sendCommand("me 偵測到錯字，翻譯:" + translateSentenceToPinyin(translateToBopomofo(msg)));
-                }
                 if (user !== "外部") {  //消息控制台顯示
                     console.log(`\x1b[38;5;208m[訊息]${user} 說: ${msg}\x1b[0m`);
                 }
@@ -563,6 +878,11 @@ wss.on('connection', (ws) => {
                     if (user !== "外部" && !msg.startsWith(`${prefix}`)){ //ai自動管理伺服器開啟中，且發話者不是外部(代表是玩家)，就讓AI回覆
                         const aiReply = await askMinecraftAI(`${msg}`,user,sendCommand,false);
                     }
+                }
+                if(/([a-z125890,.;/-]{1,3}[3467 ])/g.test(msg) && data.body.sender !== "外部" && translaeToChinese === true && msg[0] !== '.'){
+                    sendCommand("me 偵測到錯字，翻譯:" + translateToBopomofo(msg));
+                    sendCommand("me 偵測到錯字，翻譯:" + translateSentenceToPinyin(translateToBopomofo(msg)));
+                    await askGroq((translateToBopomofo(msg)),"translate",sendCommand,false);
                 }
                 handleCommand(msg,data,sendCommand);
                 //#region 指令處理
@@ -792,9 +1112,9 @@ async function handleCommand(msg,data,sendCommand) {
             }
         } else if (message[1] === "2"){
             if (tellmode === "raw") {
-                sendCommand(`tellraw "${data.body.sender}" {"rawtext":[{"text":"指令列表(2):\n ${prefix}saveai - 保存ai記憶\n ${prefix}loadai - 載入ai記憶\n"}]}`)
+                sendCommand(`tellraw "${data.body.sender}" {"rawtext":[{"text":"指令列表(2):\n ${prefix}saveai - 保存ai記憶\n ${prefix}loadai - 載入ai記憶\n ${prefix}tran <on/off> - 開啟/關閉輸入法修正"}]}`)
             } else {
-                sendCommand(`tell "${data.body.sender}" 指令列表: ${prefix}saveai - 保存ai記憶 ${prefix}loadai - 載入ai記憶`)
+                sendCommand(`tell "${data.body.sender}" 指令列表: ${prefix}saveai - 保存ai記憶 ${prefix}loadai - 載入ai記憶 ${prefix}tran <on/off> - 開啟/關閉輸入法修正`)
             }
         }
     }
@@ -825,14 +1145,19 @@ async function handleCommand(msg,data,sendCommand) {
             }
         }
     }
+    if (message[0] === `${prefix}tran`) {
+        if (message[1] === "on")
+            translaeToChinese = true;
+        if (message[1] === "off")
+            translaeToChinese = false
+    }
     if (message[0] === `${prefix}getper`) {
-            latesttime=Date.now();
-            per=[1];
-            sendCommand(`setmaxplayers 10`);
-            per.push(1);
-            sendCommand(`tp "${data.body.sender}" "${data.body.sender}"`);
-            getplayer=`${data.body.sender}`;
-            
+        latesttime=Date.now();
+        per=[1];
+        sendCommand(`setmaxplayers 10`);
+        per.push(1);
+        sendCommand(`tp "${data.body.sender}" "${data.body.sender}"`);
+        getplayer=`${data.body.sender}`;
     }
     if (message[0] === `${prefix}devlist`) {
         if (tellmode === "raw") {
@@ -843,6 +1168,29 @@ async function handleCommand(msg,data,sendCommand) {
     }
     if (message[0] === `${prefix}log`) {
         console.log(`當前AI模型: ${Aimodel}\n當前指令前綴: ${prefix}\n當前tell模式: ${tellmode}\nAI自動管理伺服器(opai): ${opai ? "開啟" : "關閉"}\nAI對話紀錄條數: ${ailog.length}\nAI對話紀錄: ${ailog.join('\n')}\nAI記憶條數: ${airemember.length}\nAI記憶: ${airemember.join('\n')}\nai是否正在思考: ${isaithinking ? "是" : "否"}\n伺服器狀態: ${serverstatus}\nai prompt目前狀態:${prompt2 === 0 ? "忽略" : "不忽略" }\n權限狀態:${per.join(' ')}\n權限判定狀態:${per2.join(' ')}\n讀取到的檔案: ${files}\ndebug:${aiLib === "on" ? "，資料庫:" + await readFiles() : ""}`);
+    }
+    if (message[0] === `${prefix}script`) {
+        if (message[1] === "run"){
+            if(codejson) {
+                sendCommand(`me 腳本啟動!`)
+                acz.runcode(codejson,sendCommand);
+            } else {
+                sendCommand(`me 沒有載入的檔案`)
+            }
+        } else if (message[1] === "open") {
+            if (message[2]) {
+                acz.scriptRead(message[2]);
+            } else {
+                if (tellmode === "raw") {
+                    sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"參數錯誤"}]}`);
+                } else {
+                    sendCommand(`tell ${data.body.sender} 參數錯誤`);
+                }
+            }
+        } else if (message[1] === "stop") {
+            stop=true;
+            sendCommand(`me 腳本被強制暫停`);
+        }
     }
     if (message[0] === `${prefix}blacklist`){
         if (data.body.sender === userName){
