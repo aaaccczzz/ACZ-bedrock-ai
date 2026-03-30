@@ -5,6 +5,7 @@ const readline = require('readline'); // 加入這行
 const OpenAI = require("openai");
 const fs = require('fs').promises;
 const Groq = require('groq-sdk');
+const { Midi } = require("@tonejs/midi");
 
 const loadprop = require('./loadprop.js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
@@ -52,9 +53,15 @@ const groq = new Groq({ apiKey:groqkey});
 let translaeToChinese=false;
 let codejson;
 let speed=20;
-let stop=false;
+let stop=false; //code
 let lastMessage;
+let noteStop=false;
+let a="a";
 readFiles();
+//2^-1 ~ 2^1
+async function note (pitch,sendCommand) {    //在minecraft播放音高
+    sendCommand(`execute as @a at @s run playsound note.harp @s ~~~ 255 ${pitch}`);
+}
 
 class aczscript {
     // 輔助函數：精準抓取大括號內的內容，支援巢狀結構
@@ -768,6 +775,9 @@ wss.on('connection', (ws) => {
                     messageType: "commandRequest"
                 },
                 body: {
+                    "origin": {
+			            "type": "player"
+		            },
                     commandLine: cmd,
                     version: commandversion
                 }
@@ -1151,7 +1161,7 @@ async function handleCommand(msg,data,sendCommand) {
         if (message[1] === "off")
             translaeToChinese = false
     }
-    if (message[0] === `${prefix}getper`) {
+    if (message[0] === `${prefix}test`) {
         latesttime=Date.now();
         per=[1];
         sendCommand(`setmaxplayers 10`);
@@ -1224,6 +1234,81 @@ async function handleCommand(msg,data,sendCommand) {
                     sendCommand(`tell ${data.body.sender} 當前:${blacklist.join(',')}`);
                 }                
             }
+        }
+    }
+    if (message[0] === `${prefix}fill`) {
+        const xMin = Math.min(message[1], message[4]);
+        const xMax = Math.max(message[1], message[4]);
+        const yMin = Math.min(message[2], message[5]);
+        const yMax = Math.max(message[2], message[5]);
+        const zMin = Math.min(message[3], message[6]);
+        const zMax = Math.max(message[3], message[6]);
+        await sendCommand(`execute at ${data.body.sender} run structure save fill ~~2~ ~~2~`);
+        await sendCommand(`execute at ${data.body.sender} run setblock ~~2~ ${message[7]}`);
+        result = await sendCommand(`execute at ${data.body.sender} run testforblock ~~2~ ${message[7]}`);
+        await sendCommand(`execute at ${data.body.sender} run structure save fill2 ~~2~ ~~2~`);
+        await sendCommand(`execute at ${data.body.sender} run structure load fill ~~2~`);
+        await sendCommand("structure delete fill")
+        if (result.body.statusCode === 0) {
+            for (let x=xMin;x<=xMax;x++) {
+                for (let y=yMin;y<=yMax;y++) {
+                    for (let z=zMin;z<=zMax;z++) {
+                        sendCommand(`structure load fill2 ${x} ${y} ${z}`,false);
+                    }
+                    await sleep(50);
+                }
+            }
+        } else {
+            sendCommand(`me fill失敗`);
+        }
+    }
+    if (message[0] === `${prefix}note`) {
+        if (message[1] !== "stop"){
+            const midiData = await fs.readFile(message[1]);
+            const midi = new Midi(midiData);
+            console.log(`專案名稱: ${midi.name}`);
+            console.log(`總長度: ${midi.duration.toFixed(2)} 秒`);
+            console.log(`BPM: ${midi.header.tempos[0].bpm}`);
+            midi.tracks.forEach((track, index) => {
+                let mcSound = "note.harp"; // 預設：泥土/空氣 (鋼琴)
+                const p = track.instrument.number;
+                // 判斷樂器分類 (MIDI Standard Program Numbers)
+                if (track.percusion) {
+                    mcSound = "note.bd"; // 打擊樂軌：大鼓 (石材)
+                } else if (p >= 0 && p <= 7) {
+                    mcSound = "note.harp"; // 鋼琴：豎琴 (泥土)
+                } else if (p >= 8 && p <= 15) {
+                    mcSound = "note.xylophone"; // 片琴/木琴：(骨塊)
+                } else if (p >= 16 && p <= 23) {
+                    mcSound = "note.pling"; // 風琴：(發光石)
+                } else if (p >= 24 && p <= 31) {
+                    mcSound = "note.guitar"; // 吉他：(羊毛)
+                } else if (p >= 32 && p <= 39) {
+                    mcSound = "note.bass"; // 貝斯：(木材)
+                } else if (p >= 40 && p <= 55) {
+                    mcSound = "note.bit"; // 弦樂/合成：(翡翠塊)
+                } else if (p >= 56 && p <= 71) {
+                    mcSound = "note.flute"; // 銅管：(黏土)
+                } else if (p >= 72 && p <= 79) {
+                    mcSound = "note.flute"; // 木管：(黏土)
+                } else if (p >= 112 && p <= 119) {
+                    mcSound = "note.snare"; // 敲擊：小鼓 (沙子)
+                } else if (p >= 120 && p <= 127) {
+                    mcSound = "note.hat"; // 特效：踏鈸 (玻璃)
+                }
+                console.log(`--- 音軌 #${index}: ${track.name} (樂器編號: ${track.instrument.number}) ---`);
+                track.notes.forEach(async note => {
+                    // MIDI編號: note.midi,  // 例如 60 // 起始時間: note.time,秒 // 持續時間: note.duration, // 力度: note.velocity   // 0 到 1 之間
+                    await sleep(note.time * 1000);
+                    console.log(`音符: MIDI編號 ${note.midi}, 起始時間 ${note.time.toFixed(2)}s, 持續時間 ${note.duration.toFixed(2)}s, 力度 ${note.velocity}, 使用音效 ${mcSound}`);
+                    sendCommand(`execute at @a run playsound ${mcSound} @s ~ ~ ~ 0.5 ${2 ** ((note.midi - 55)/12)} ${note.velocity}`,false);  //playsound用法: playsound <sound: string> [player: target] [position: x y z] [volume: float] [pitch: float] [minimumVolume: float]
+                    if (noteStop) {
+                        //不會做 先放著:L
+                    }
+                });
+            });
+        } else {
+            noteStop=true;
         }
     }
 }
