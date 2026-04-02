@@ -1,14 +1,29 @@
-const WebSocket = require('ws');
+let WebSocket, OpenAI, Midi, Groq, GoogleGenerativeAI, bedrock;
 const { exec } = require('child_process');
+const { execSync } = require('child_process');
 const { send } = require('process');
 const readline = require('readline'); // 加入這行
-const OpenAI = require("openai");
+const brain = require('./brain.js');
 const fs = require('fs').promises;
-const Groq = require('groq-sdk');
-const { Midi } = require("@tonejs/midi");
+try {
+    bedrock = require('bedrock-protocol');
+    ({ GoogleGenerativeAI } = require("@google/generative-ai"));
+    WebSocket = require('ws');
+    OpenAI = require("openai");
+    Groq = require('groq-sdk');
+    ({Midi} = require("@tonejs/midi"));
+} catch (err) {
+    if (err.message.includes('Cannot find module')) {
+        console.error("缺少必要的模組:", err.message.replace('Cannot find module ','').replaceAll("'", ""),"。正在安裝...");
+        execSync(`npm install ${err.message.replace('Cannot find module ','').replaceAll("'", "")}`);
+        process.exit(1);
+    } else {
+        console.error("載入模組時發生錯誤:", err);
+        process.exit(1);
+    }
+}
 
 const loadprop = require('./loadprop.js');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const wss = new WebSocket.Server({ port: 8080 });
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const pendingRequests = new Map();
@@ -55,10 +70,10 @@ let codejson;
 let speed=20;
 let stop=false; //code
 let lastMessage;
-let noteStop=false;
 let a="a";
+let isMusicPlaying=false;
+let lastPlayerMessage = "";
 readFiles();
-//2^-1 ~ 2^1
 async function note (pitch,sendCommand) {    //在minecraft播放音高
     sendCommand(`execute as @a at @s run playsound note.harp @s ~~~ 255 ${pitch}`);
 }
@@ -790,6 +805,11 @@ wss.on('connection', (ws) => {
         });
     };
 
+    const tickInterval = setInterval(() => {
+        if (!isMusicPlaying) {
+            sendCommand(`title @a[hasitem={item=paper,location=slot.weapon.mainhand}] actionbar 當前時間: ${new Date().toLocaleString()}`, false);
+        }
+    }, 50);
         // --- B. 封裝「訂閱事件」的工具 ---
     const subscribe = (eventName) => {
         const sub = {
@@ -880,8 +900,9 @@ wss.on('connection', (ws) => {
                 // 2. 從 body 抓取小寫的 message 和 sender
                 const msg = data.body.message;
                 const user = data.body.sender;
-                if (user !== "外部") {  //消息控制台顯示
+                if (user !== "外部" && (msg !== lastPlayerMessage && !msg.startsWith(prefix))) {  //消息控制台顯示
                     console.log(`\x1b[38;5;208m[訊息]${user} 說: ${msg}\x1b[0m`);
+                    lastPlayerMessage = msg;
                 }
                 if (opai){  //無人管理伺服器
                     prompt=0; //自動回復看場景回答問題
@@ -1263,52 +1284,94 @@ async function handleCommand(msg,data,sendCommand) {
         }
     }
     if (message[0] === `${prefix}note`) {
-        if (message[1] !== "stop"){
-            const midiData = await fs.readFile(message[1]);
+        if (message[1] !== "stop" && message[1] !== undefined && isMusicPlaying === false) {
+            isMusicPlaying=true;
+            try {
+                await fs.access(`./midi/${message[1]}.mid`);
+            } catch (err) {                if (tellmode === "raw") {
+                    sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"找不到指定的midi檔案: ${message[1]}.mid"}]}`);
+                } else {
+                    sendCommand(`tell ${data.body.sender} 找不到指定的midi檔案: ${message[1]}.mid`);
+                }
+                return;
+            }
+            const midiData = await fs.readFile(`./midi/${message[1]}.mid`);
             const midi = new Midi(midiData);
             console.log(`專案名稱: ${midi.name}`);
             console.log(`總長度: ${midi.duration.toFixed(2)} 秒`);
             console.log(`BPM: ${midi.header.tempos[0].bpm}`);
-            midi.tracks.forEach((track, index) => {
-                let mcSound = "note.harp"; // 預設：泥土/空氣 (鋼琴)
+            let allNotes = [];
+            midi.tracks.forEach((track) => {
+                let mcSound = "note.harp"; // 預設鋼琴
                 const p = track.instrument.number;
-                // 判斷樂器分類 (MIDI Standard Program Numbers)
-                if (track.percusion) {
-                    mcSound = "note.bd"; // 打擊樂軌：大鼓 (石材)
-                } else if (p >= 0 && p <= 7) {
-                    mcSound = "note.harp"; // 鋼琴：豎琴 (泥土)
-                } else if (p >= 8 && p <= 15) {
-                    mcSound = "note.xylophone"; // 片琴/木琴：(骨塊)
-                } else if (p >= 16 && p <= 23) {
-                    mcSound = "note.pling"; // 風琴：(發光石)
-                } else if (p >= 24 && p <= 31) {
-                    mcSound = "note.guitar"; // 吉他：(羊毛)
-                } else if (p >= 32 && p <= 39) {
-                    mcSound = "note.bass"; // 貝斯：(木材)
-                } else if (p >= 40 && p <= 55) {
-                    mcSound = "note.bit"; // 弦樂/合成：(翡翠塊)
-                } else if (p >= 56 && p <= 71) {
-                    mcSound = "note.flute"; // 銅管：(黏土)
-                } else if (p >= 72 && p <= 79) {
-                    mcSound = "note.flute"; // 木管：(黏土)
-                } else if (p >= 112 && p <= 119) {
-                    mcSound = "note.snare"; // 敲擊：小鼓 (沙子)
-                } else if (p >= 120 && p <= 127) {
-                    mcSound = "note.hat"; // 特效：踏鈸 (玻璃)
-                }
-                console.log(`--- 音軌 #${index}: ${track.name} (樂器編號: ${track.instrument.number}) ---`);
-                track.notes.forEach(async note => {
-                    // MIDI編號: note.midi,  // 例如 60 // 起始時間: note.time,秒 // 持續時間: note.duration, // 力度: note.velocity   // 0 到 1 之間
-                    await sleep(note.time * 1000);
-                    console.log(`音符: MIDI編號 ${note.midi}, 起始時間 ${note.time.toFixed(2)}s, 持續時間 ${note.duration.toFixed(2)}s, 力度 ${note.velocity}, 使用音效 ${mcSound}`);
-                    sendCommand(`execute at @a run playsound ${mcSound} @s ~ ~ ~ 0.5 ${2 ** ((note.midi - 55)/12)} ${note.velocity}`,false);  //playsound用法: playsound <sound: string> [player: target] [position: x y z] [volume: float] [pitch: float] [minimumVolume: float]
-                    if (noteStop) {
-                        //不會做 先放著:L
-                    }
+                if (track.percusion) mcSound = "note.bd";
+                else if (p >= 0 && p <= 7) mcSound = "note.harp";
+                else if (p >= 8 && p <= 15) mcSound = "note.xylophone";
+                else if (p >= 16 && p <= 23) mcSound = "note.pling";
+                else if (p >= 24 && p <= 31) mcSound = "note.guitar";
+                else if (p >= 32 && p <= 39) mcSound = "note.bass";
+                else if (p >= 40 && p <= 55) mcSound = "note.bit";
+                else if (p >= 56 && p <= 79) mcSound = "note.flute";
+                else if (p >= 112 && p <= 119) mcSound = "note.snare";
+                else if (p >= 120 && p <= 127) mcSound = "note.hat";
+                track.notes.forEach(note => {
+                    const second = (note.ticks / midi.header.ppq) * (60 / midi.header.tempos[0].bpm);
+                    allNotes.push({ ...note, time: second, mcSound });
                 });
             });
-        } else {
-            noteStop=true;
+            allNotes.sort((a, b) => a.time - b.time);
+            let currentTime = 0;
+            for (const note of allNotes) {
+                if (!isMusicPlaying) break;
+                const waitTime = (note.time - currentTime) * 1000;
+                await sleep(waitTime);
+                const mcPitch = Math.pow(2, (note.midi - 66) / 12).toFixed(2);
+
+                // 1. 定義 8 種寬度的符號 (由大到小)
+                const fractionChars = ["█", "▉", "▊", "▋", "▌", "▍", "▎", "▏"];
+                // 2. 計算總進度 (假設總長度是 10 格)
+                const totalWidth = 10;
+                const progressValue = (note.time / midi.duration) * totalWidth; // 例如 5.37
+                const fullBlocks = Math.floor(progressValue); // 完整的方塊數 (例如 5)
+                const fractionalPart = progressValue - fullBlocks; // 剩餘的細節 (例如 0.37)
+                // 3. 組合進度條
+                let progressBar = "█".repeat(fullBlocks);
+
+                if (fullBlocks < totalWidth) {
+                    const index = Math.floor(fractionalPart * 8);
+                    if (index >= 0) {
+                        progressBar += fractionChars[7 - index]; // 根據剩餘量選擇符號
+                    }
+                    // 補齊剩下的空白 (用細小的空格或是空白符號)
+                    const remainingEmpty = totalWidth - fullBlocks - 1;
+                    if (remainingEmpty > 0) {
+                        progressBar += "░".repeat(remainingEmpty);
+                    }
+                }
+                sendCommand(`execute as @a at @s run playsound ${note.mcSound} @s ~ ~ ~ 0.5 ${mcPitch} ${note.velocity.toFixed(2)}`, false);
+                sendCommand(`title @a[hasitem={item=paper,location=slot.weapon.mainhand}] actionbar 當前時間:${new Date().getFullYear()}年${new Date().getMonth() + 1}月${new Date().getDate()}日${new Date().getHours()}時${new Date().getMinutes()}分${new Date().getSeconds()}秒\n§e播放中: ${message[1]},音符:${note.midi} BPM:${midi.header.tempos[0].bpm}\n秒數:${note.time.toFixed(2)}/${midi.duration.toFixed(2)}\n進度: ${(note.time / midi.duration * 100).toFixed(2)}% ${progressBar}`, false);
+                currentTime = note.time;
+            }
+
+            // 4. 當 for 迴圈真的跑完，才會執行這裡
+            console.log(`音樂播放完畢!`);
+            sendCommand(`me §a音樂播放完畢！`);
+            isMusicPlaying = false;
+        } else if (message[1] === "stop"){
+            isMusicPlaying=false;
+            sendCommand(`me §c音樂已被停止！`);
+        } else if (message[1] === undefined) {
+            if (tellmode === "raw") {
+                sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"用法: ${prefix}note <midi檔案路徑>"}]}`);
+            } else {
+                sendCommand(`tell ${data.body.sender} 用法: ${prefix}note <midi檔案路徑>`);
+            }
+        } else if (isMusicPlaying) {
+            if (tellmode === "raw") {
+                sendCommand(`tellraw ${data.body.sender} {"rawtext":[{"text":"!§a已經有音樂在播放了"}]}`);
+            } else {
+                sendCommand(`tell ${data.body.sender} !§a已經有音樂在播放了`);
+            }
         }
     }
 }

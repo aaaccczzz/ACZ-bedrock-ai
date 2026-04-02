@@ -4,3 +4,7 @@ ban.bat
 ai.cjs
 test.exe
 .gitignore
+midi
+a.cjs
+model.json
+node_modules

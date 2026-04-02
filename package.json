@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@tonejs/midi": "^2.0.28",
+    "bedrock-protocol": "^3.55.0",
+    "ecdsa-sig-formatter": "^1.0.11",
+    "groq-sdk": "^1.1.2",
+    "jsonwebtoken": "^9.0.3",
+    "jwa": "^2.0.1",
+    "jws": "^4.0.1",
+    "openai": "^6.33.0",
+    "ws": "^8.20.0"
+  }
+}
