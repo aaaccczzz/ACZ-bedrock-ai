@@ -69,7 +69,8 @@ function loadprop(){
 	consolename: "管理員"
     };
 }
-module.exports={loadprop};```
+module.exports={loadprop};
+```
 
 **把`YOUR_KEY`換成你的API**
 
